@@ -346,7 +346,7 @@ export function AuditLogs({ store }) {
       case 'MODIFICATION': return { bg: 'rgba(0,121,193,0.15)', color: '#0079c1' };
       case 'SUPPRESSION': return { bg: 'rgba(230,57,70,0.15)', color: '#e63946' };
       case 'ALERTE': return { bg: 'rgba(244,162,97,0.15)', color: '#f4a261' };
-      default: return { bg: 'rgba(148,163,184,0.15)', color: '#64748b' };
+      default: return { bg: 'rgba(148,163,184,0.15)', color: 'var(--text-muted)' };
     }
   };
 
