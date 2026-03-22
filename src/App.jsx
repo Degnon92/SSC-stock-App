@@ -10,7 +10,7 @@ import Mouvements from './components/Mouvements';
 import Commandes from './components/Commandes';
 import Fournisseurs from './components/Fournisseurs';
 import Clients from './components/Clients';
-import { Alertes, Rapports, AuditLogs } from './components/Pages';
+import { Alertes, Analyses, Rapports, AuditLogs } from './components/Pages';
 import { Lots, HistoriquePrix } from './components/Tracabilite';
 import Facturation from './components/Facturation';
 import Scanner from './components/Scanner';
@@ -110,7 +110,8 @@ export default function App() {
               { id: 'produits',     label: 'Produits' },
               { id: 'partenaires',  label: 'Partenaires' },
               { id: 'mouvements',   label: 'Mouvements' },
-              { id: 'rapports',     label: 'Analytique' },
+              { id: 'analyses', label: 'Analytique' },
+              { id: 'rapports',     label: 'Rapports' },
             ].map(tab => (
               <button key={tab.id} onClick={() => setPage(tab.id)} style={{
                 background: 'none', border: 'none', padding: '4px 14px', cursor: 'pointer',
@@ -192,6 +193,7 @@ export default function App() {
             {page === 'prix'         && <HistoriquePrix store={store} />}
             {page === 'factures'     && <Facturation store={store} auth={auth} />}
             {page === 'commandes'    && <Commandes store={store} auth={auth} />}
+            {page === 'analyses'     && <Analyses store={store} />}
             {page === 'rapports'     && <Rapports store={store} />}
             {page === 'audit'        && <AuditLogs store={store} />}
             {page === 'parametres'   && <Parametres store={store} auth={auth} />}
