@@ -1,0 +1,38 @@
+name: Firebase Daily Backup
+
+on:
+  schedule:
+    # Exécuter tous les jours à 03:00 (UTC) la nuit
+    - cron: '0 3 * * *'
+  # Permet aussi de lancer la sauvegarde manuellement depuis l'onglet "Actions" sur GitHub
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Téléchargement du code source
+        uses: actions/checkout@v4
+
+      - name: Configuration de Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Installation du SDK Administrateur Firebase
+        # On installe firebase-admin uniquement pour ce job, sans polluer ton app React
+        run: npm install firebase-admin
+        
+      - name: Exécution du script d'extraction
+        env:
+          # On injecte la clé secrète depuis les paramètres GitHub
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/backup.js
+
+      - name: Sauvegarde sécurisée (Artefact GitHub)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssc-backup-${{ github.run_id }}
+          path: backup_ssc_*.json
+          retention-days: 90 # GitHub garde le fichier zippé privé pendant 90 jours

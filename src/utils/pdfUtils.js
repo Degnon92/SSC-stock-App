@@ -356,3 +356,76 @@ export function generateRapportFlash({ storeVal }) {
   footer(doc);
   doc.save(`Rapport-Flash-SSC.pdf`);
 }
+
+// ── 6. RAPPORT D'ALERTES STOCK ──────────────────────────────────────────────
+export function generateAlertesPDF({ alertes, ruptures = [], stockFaible = [], expirationProche = [] }) {
+  const doc = new jsPDF();
+  let y = header(doc, 'RAPPORT D\'ALERTES STOCK', `Au ${new Date().toLocaleDateString('fr-FR')}`);
+
+  y = infoBox(doc, y, [
+    ['Ruptures totales (stock = 0)', `${ruptures.length} produit(s)`],
+    ['Stock faible (≤ seuil)', `${stockFaible.length} produit(s)`],
+    ['Expirations proches (<90j)', `${expirationProche.length} produit(s)`],
+    ['Total alertes', alertes.length],
+  ]);
+
+  if (!alertes.length) {
+    doc.setFontSize(12);
+    doc.setTextColor(...BRAND.accent);
+    doc.setFont('helvetica', 'bold');
+    doc.text('✅ Aucune alerte — tous les stocks sont OK !', 14, y + 10);
+  } else {
+    doc.autoTable({
+      startY: y,
+      head: [['Référence', 'Désignation', 'Catégorie', 'Stock', 'Seuil', 'Statut']],
+      body: alertes.map(p => [
+        p.ref, p.nom, p.cat || '—',
+        `${p.stock} ${p.unite || 'unité(s)'}`,
+        `${p.seuil}`,
+        p.stock === 0 ? 'RUPTURE' : 'FAIBLE',
+      ]),
+      styles: { fontSize: 9, cellPadding: 4 },
+      headStyles: { fillColor: BRAND.danger, textColor: BRAND.white, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [255, 241, 242] },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 5) {
+          data.cell.styles.textColor = data.cell.text[0] === 'RUPTURE' ? BRAND.danger : [200, 120, 40];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      },
+    });
+  }
+
+  footer(doc);
+  doc.save(`alertes-stock-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+// ── 7. LISTE DES FOURNISSEURS ──────────────────────────────────────────────
+export function generateFournisseursPDF({ fournisseurs, produits }) {
+  const doc = new jsPDF();
+  let y = header(doc, 'LISTE DES FOURNISSEURS', `Au ${new Date().toLocaleDateString('fr-FR')}`);
+
+  y = infoBox(doc, y, [
+    ['Total fournisseurs', fournisseurs.length],
+    ['Produits référencés', produits.length],
+  ]);
+
+  doc.autoTable({
+    startY: y,
+    head: [['Nom / Société', 'Contact', 'Téléphone', 'Email', 'Localisation', 'Spécialités', 'Nb produits']],
+    body: fournisseurs.map(f => {
+      const nbProd = produits.filter(p => p.fourn_id === f.id).length;
+      return [
+        f.nom, f.contact || '—', f.tel || '—', f.email || '—',
+        [f.ville, f.pays].filter(Boolean).join(', ') || '—',
+        f.spec || '—', nbProd,
+      ];
+    }),
+    styles: { fontSize: 8.5, cellPadding: 3.5 },
+    headStyles: { fillColor: BRAND.primary, textColor: BRAND.white, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+  });
+
+  footer(doc);
+  doc.save(`fournisseurs-ssc-${new Date().toISOString().slice(0, 10)}.pdf`);
+}

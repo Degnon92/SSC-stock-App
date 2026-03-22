@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Modal, FormGrid, FormGroup, Input, Select, Btn, Badge, Table, Tr, Td, SearchBar, Toolbar, PageHeader, Card, Empty } from './UI';
+import { Modal, FormGrid, FormGroup, Input, Select, Btn, SearchBar, PageHeader, Card, StatCard, Empty } from './UI';
+import { generatePremiumPDF, generatePremiumExcel } from '../utils/exportUtils';
 
 const EMPTY_FORM = { produit_id: '', qte: 1, date: new Date().toISOString().slice(0,10), motif: '', operateur: '', client_fourn: '', prix_unitaire: 0 };
 
@@ -61,55 +62,153 @@ export default function Mouvements({ store }) {
   const totalSorties = mouvements.filter(m => m.type === 'Sortie').reduce((s, m) => s + m.qte, 0);
   const caTotal = mouvements.filter(m => m.type === 'Sortie').reduce((s, m) => s + m.qte * (m.prix_unitaire || 0), 0);
 
+  function handleExportPDF() {
+    const columns = [
+      { key: 'date', header: 'DATE' },
+      { key: 'produit_nom', header: 'PRODUIT DESIGNATION' },
+      { key: 'type', header: 'TYPE', align: 'center' },
+      { key: 'qte', header: 'QTE', align: 'center' },
+      { key: 'prix_unitaire', header: 'P.UNIT', isCurrency: true, align: 'right' },
+      { key: 'montant', header: 'MONTANT', isCurrency: true, align: 'right' },
+      { key: 'client_fourn', header: 'TIERS' },
+      { key: 'motif', header: 'MOTIF' },
+      { key: 'operateur', header: 'OPERATEUR' },
+    ];
+    const data = filtered.map(m => ({ ...m, montant: m.qte * (m.prix_unitaire || 0) }));
+    generatePremiumPDF({ title: 'Historique des Mouvements', data, columns, filename: 'Mouvements_Stock' });
+  }
+
+  function handleExportExcel() {
+    const columns = [
+      { key: 'date', header: 'DATE' },
+      { key: 'produit_nom', header: 'PRODUIT DESIGNATION' },
+      { key: 'type', header: 'TYPE', align: 'center' },
+      { key: 'qte', header: 'QUANTITE', align: 'center' },
+      { key: 'prix_unitaire', header: 'PRIX UNITAIRE', isCurrency: true, align: 'right' },
+      { key: 'montant', header: 'MONTANT EXACT', isCurrency: true, align: 'right' },
+      { key: 'client_fourn', header: 'CLIENT / FOURNISSEUR' },
+      { key: 'motif', header: 'MOTIF' },
+      { key: 'operateur', header: 'OPERATEUR' },
+    ];
+    const data = filtered.map(m => ({ ...m, montant: m.qte * (m.prix_unitaire || 0) }));
+    generatePremiumExcel({ title: 'HISTORIQUE DES MOUVEMENTS DE STOCK', data, columns, filename: 'Mouvements_Stock' });
+  }
+
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <PageHeader title="🔄 Mouvements de Stock">
-        <Btn variant="accent" onClick={() => openModal('Entrée')} icon="▲">Entrée en stock</Btn>
-        <Btn variant="danger" onClick={() => openModal('Sortie')} icon="▼">Sortie de stock</Btn>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Btn variant="outline" icon="📄" onClick={handleExportPDF}>Rapport PDF</Btn>
+          <Btn variant="outline" icon="📊" onClick={handleExportExcel}>Excel Premium</Btn>
+          <Btn variant="accent" onClick={() => openModal('Entrée')} icon="▲">Entrée en stock</Btn>
+          <Btn variant="danger" onClick={() => openModal('Sortie')} icon="▼">Sortie de stock</Btn>
+        </div>
       </PageHeader>
 
       {/* Mini stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 22 }}>
-        {[
-          { label: 'Total entrées', value: totalEntrees + ' unités', color: '#00a878', icon: '▲' },
-          { label: 'Total sorties', value: totalSorties + ' unités', color: '#e63946', icon: '▼' },
-          { label: "Chiffre d'affaires", value: caTotal.toLocaleString('fr-FR') + ' FCFA', color: '#0079c1', icon: '💵' },
-        ].map(s => (
-          <div key={s.label} style={{ background: 'var(--bg-card)', borderRadius: 10, padding: '16px 20px', border: '1px solid var(--border-color)', boxShadow: '0 2px 8px rgba(10,37,64,0.06)' }}>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{s.label}</div>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '1.4rem', color: s.color }}>{s.icon} {s.value}</div>
-          </div>
-        ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, marginBottom: 28 }}>
+        <StatCard label="Total entrées" value={totalEntrees} sub="Unités stockées" color="green" icon="▲" />
+        <StatCard label="Total sorties" value={totalSorties} sub="Unités sorties" color="danger" icon="▼" />
+        <StatCard label="Chiffre d'affaires" value={caTotal.toLocaleString('fr-FR')} sub="FCFA" color="blue" icon="💵" />
       </div>
 
-      <Card>
-        <Toolbar>
-          <SearchBar value={search} onChange={setSearch} placeholder="Rechercher par produit, client, motif..." />
-          <Select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-            <option value="">Tous les types</option>
-            <option value="Entrée">Entrées uniquement</option>
-            <option value="Sortie">Sorties uniquement</option>
-          </Select>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>{filtered.length} mouvement(s)</span>
-        </Toolbar>
+      {/* Barre d'outils / Filtres */}
+      <div style={{ background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', borderRadius: '16px', padding: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginBottom: '24px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+        <SearchBar value={search} onChange={setSearch} placeholder="Rechercher par produit, client, motif..." />
+        <Select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ minWidth: 180, padding: '10px 16px', borderRadius: 12 }}>
+          <option value="">Tous les types</option>
+          <option value="Entrée">Entrées uniquement</option>
+          <option value="Sortie">Sorties uniquement</option>
+        </Select>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: 'auto', paddingRight: 10 }}>{filtered.length} mouvement(s)</span>
+      </div>
 
-        <Table headers={['Date', 'Produit', 'Type', 'Quantité', 'Prix unit.', 'Montant', 'Client / Fournisseur', 'Motif', 'Opérateur']}
-          empty={filtered.length === 0 ? <Empty icon="🔄" message="Aucun mouvement enregistré" /> : null}>
-          {filtered.map(m => (
-            <Tr key={m.id}>
-              <Td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{m.date}</Td>
-              <Td style={{ fontWeight: 600, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.produit_nom}</Td>
-              <Td><Badge variant={m.type === 'Entrée' ? 'ok' : 'danger'}>{m.type === 'Entrée' ? '▲' : '▼'} {m.type}</Badge></Td>
-              <Td><strong style={{ fontSize: '1rem' }}>{m.qte}</strong></Td>
-              <Td style={{ color: 'var(--text-muted)' }}>{m.prix_unitaire ? m.prix_unitaire.toLocaleString() + ' F' : '—'}</Td>
-              <Td style={{ fontWeight: 600, color: m.type === 'Sortie' ? '#00a878' : 'var(--text-muted)' }}>{m.prix_unitaire ? (m.qte * m.prix_unitaire).toLocaleString() + ' F' : '—'}</Td>
-              <Td style={{ color: 'var(--text-muted)' }}>{m.client_fourn || '—'}</Td>
-              <Td style={{ color: 'var(--text-muted)' }}>{m.motif || '—'}</Td>
-              <Td style={{ color: 'var(--text-muted)' }}>{m.operateur || '—'}</Td>
-            </Tr>
-          ))}
-        </Table>
-      </Card>
+      {/* TIMELINE */}
+      <style>{`
+        .timeline-container { position: relative; padding-left: 24px; padding-top: 10px; }
+        @media (min-width: 640px) { .timeline-container { padding-left: 48px; } }
+        .timeline-line {
+          position: absolute; left: 11px; top: 0; bottom: 0; width: 2px;
+          background: linear-gradient(to bottom, rgba(99,102,241,0.5) 0%, rgba(99,102,241,0.1) 100%);
+          box-shadow: 0 0 10px rgba(99,102,241,0.3); z-index: 0;
+        }
+        @media (min-width: 640px) { .timeline-line { left: 23px; } }
+        
+        .glow-Entrée { box-shadow: inset 4px 0 0 0 #22c55e, 0 8px 32px 0 rgba(0,0,0,0.37), 0 0 20px -5px rgba(34,197,94,0.15); }
+        .glow-Sortie { box-shadow: inset 4px 0 0 0 #ef4444, 0 8px 32px 0 rgba(0,0,0,0.37), 0 0 20px -5px rgba(239,68,68,0.15); }
+        .glow-Ajustement { box-shadow: inset 4px 0 0 0 #f59e0b, 0 8px 32px 0 rgba(0,0,0,0.37), 0 0 20px -5px rgba(245,158,11,0.15); }
+
+        @media (max-width: 639px) {
+          .hidden-mobile { display: none !important; }
+        }
+      `}</style>
+      
+      {filtered.length === 0 ? (
+        <Empty icon="🔄" message="Aucun mouvement enregistré." />
+      ) : (
+        <div className="timeline-container">
+          <div className="timeline-line hidden-mobile"></div>
+          {filtered.map(m => {
+            const isEntree = m.type === 'Entrée';
+            const isSortie = m.type === 'Sortie';
+            const typeColor = isEntree ? '#4ade80' : isSortie ? '#f87171' : '#fbbf24';
+            const typeBg = isEntree ? 'rgba(34,197,94,0.1)' : isSortie ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)';
+            const glowClass = `glow-${m.type}`;
+            const dateStr = (m.date || '').substring(0, 10);
+            
+            return (
+              <div key={m.id} style={{ position: 'relative', zIndex: 10, marginBottom: '24px' }}>
+                 {/* Pastille chronologique */}
+                 <div style={{ position: 'absolute', left: '-42px', top: '24px', width: '36px', height: '36px', borderRadius: '50%', background: '#020617', border: `2px solid ${typeColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 15px ${typeBg}`, zIndex: 20 }} className="hidden-mobile">
+                    {isEntree ? <span style={{ color: typeColor, fontSize: '1.2rem', lineHeight: 1 }}>↓</span> : isSortie ? <span style={{ color: typeColor, fontSize: '1.2rem', lineHeight: 1 }}>↑</span> : <span style={{ color: typeColor, fontSize: '1rem' }}>↻</span>}
+                 </div>
+
+                 <article className={`glass-card ${glowClass}`} style={{ 
+                   background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', borderRadius: '24px', 
+                   padding: '20px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', justifyContent: 'space-between', border: '1px solid rgba(255, 255, 255, 0.08)' 
+                 }}>
+                   
+                   {/* Bloc Gauche : Produit & Date */}
+                   <div style={{ flex: '1 1 250px' }}>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                       <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#94a3b8', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>{dateStr}</span>
+                       <span style={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 600, color: typeColor, background: typeBg, padding: '2px 8px', borderRadius: '6px', border: `1px solid ${typeColor}30`, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{m.type}</span>
+                     </div>
+                     <h3 style={{ fontWeight: 700, fontSize: '1.1rem', color: '#ffffff', marginBottom: '4px', lineHeight: 1.2 }}>{m.produit_nom}</h3>
+                     {m.motif && <p style={{ fontSize: '0.75rem', color: '#a5b4fc', fontWeight: 500 }}>{m.motif}</p>}
+                   </div>
+
+                   {/* Bloc Centre : Quantité */}
+                   <div style={{ flex: '1 1 150px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                     <div style={{ background: typeBg, border: `1px solid ${typeColor}20`, borderRadius: '16px', padding: '10px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '100px' }}>
+                       <span style={{ fontSize: '0.6rem', color: typeColor, opacity: 0.8, textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px' }}>{isEntree ? 'Entrée' : isSortie ? 'Sortie' : 'Quantité'}</span>
+                       <span style={{ fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 800, color: typeColor }}>{isEntree ? '+' : isSortie ? '-' : ''}{m.qte}</span>
+                     </div>
+                   </div>
+
+                   {/* Bloc Droit : Utilisateur & Montant */}
+                   <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'right', alignItems: 'flex-end' }}>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '0.85rem' }}>
+                       <span style={{ fontWeight: 500 }}>{m.operateur || 'Système'}</span>
+                       <span style={{ opacity: 0.5 }}>👤</span>
+                     </div>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                       <span style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>{m.client_fourn || 'Interne'}</span>
+                       <span style={{ opacity: 0.5 }}>🏢</span>
+                     </div>
+                     {m.prix_unitaire > 0 && (
+                       <div style={{ marginTop: '4px', fontSize: '0.85rem', color: isSortie ? '#34d399' : '#f87171', fontWeight: 600 }}>
+                         {(m.qte * m.prix_unitaire).toLocaleString()} FCFA
+                       </div>
+                     )}
+                   </div>
+
+                 </article>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* MODAL ENTREE / SORTIE */}
       <Modal open={!!modalType} onClose={() => setModalType(null)}

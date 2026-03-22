@@ -16,15 +16,21 @@ import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 export const ROLES = {
-  ADMIN:    'admin',    // Accès total
-  STOCK:    'stock',    // Entrées/sorties + consultation
-  LECTURE:  'lecture',  // Consultation uniquement
+  SUPER_ADMIN: 'super_admin', // Accès total + gestion système
+  ADMIN:       'admin',       // Accès total
+  STOCK:       'stock',       // Entrées/sorties + consultation
+  LECTURE:     'lecture',     // Consultation uniquement
 };
 
 export const DEFAULT_PERMS = {
   canViewPUMP: false,      // Voir les prix d'achat
   canDelete: false,        // Supprimer des éléments
   canExport: false,        // Exporter les données
+  canStock: false,         // Gérer le Stock (Entrées/Sorties)
+  canCommandes: false,     // Gérer les Commandes
+  canFacturation: false,   // Gérer la Facturation
+  canClients: false,       // Gérer les Clients
+  canRapports: false,      // Accéder aux Rapports
 };
 
 export default function useAuth() {
@@ -46,8 +52,8 @@ export default function useAuth() {
               const data = snap.data();
               // Polyfill permissions if missing
               if (!data.permissions) data.permissions = { ...DEFAULT_PERMS };
-              if (data.role === ROLES.ADMIN) {
-                 data.permissions = { canViewPUMP: true, canDelete: true, canExport: true };
+              if (data.role === ROLES.ADMIN || data.role === ROLES.SUPER_ADMIN) {
+                 data.permissions = { canViewPUMP: true, canDelete: true, canExport: true, canStock: true, canCommandes: true, canFacturation: true, canClients: true, canRapports: true };
               }
               setProfile(data);
             } else {
@@ -106,7 +112,7 @@ export default function useAuth() {
       await updateProfile(cred.user, { displayName: nom });
       await setDoc(doc(db, 'users', cred.user.uid), { 
         nom, email, role, 
-        permissions: role === ROLES.ADMIN ? { canViewPUMP: true, canDelete: true, canExport: true } : permissions,
+        permissions: (role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN) ? { canViewPUMP: true, canDelete: true, canExport: true, canStock: true, canCommandes: true, canFacturation: true, canClients: true, canRapports: true } : permissions,
         createdAt: new Date().toISOString() 
       });
       return { success: true };
@@ -129,9 +135,10 @@ export default function useAuth() {
     }
   }, []);
 
-  const isAdmin  = profile?.role === ROLES.ADMIN;
-  const canWrite = profile?.role === ROLES.ADMIN || profile?.role === ROLES.STOCK;
+  const isAdmin  = profile?.role === ROLES.ADMIN || profile?.role === ROLES.SUPER_ADMIN;
+  const isSuperAdmin = profile?.role === ROLES.SUPER_ADMIN;
+  const canWrite = isAdmin || profile?.role === ROLES.STOCK;
   const hasPerm  = (p) => isAdmin || (profile?.permissions && profile.permissions[p]);
 
-  return { user, profile, loading, error, isAdmin, canWrite, hasPerm, login, logout, createUser, resetPassword };
+  return { user, profile, loading, error, isAdmin, isSuperAdmin, canWrite, hasPerm, login, logout, createUser, resetPassword };
 }

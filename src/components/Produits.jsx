@@ -1,12 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Modal, FormGrid, FormGroup, Input, Select, Textarea, Btn, Badge, Table, Tr, Td, SearchBar, Toolbar, PageHeader, Card, Confirm, Empty } from './UI';
+import { Modal, FormGrid, FormGroup, Input, Select, Textarea, Btn, SearchBar, PageHeader, Confirm, Empty } from './UI';
 import { CATEGORIES } from '../data/initialData';
-
-function statusInfo(p) {
-  if (p.stock === 0) return { label: 'Rupture', variant: 'danger' };
-  if (p.stock <= p.seuil) return { label: 'Stock faible', variant: 'warn' };
-  return { label: 'Disponible', variant: 'ok' };
-}
+import { generatePremiumPDF, generatePremiumExcel } from '../utils/exportUtils';
 
 const EMPTY_FORM = { ref: '', nom: '', cat: 'Prothèses', stock: 0, seuil: 5, prix_achat: 0, prix_vente: 0, fourn_id: '', desc: '', localisation: '', date_expiration: '' };
 
@@ -44,58 +39,247 @@ export default function Produits({ store }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  function handleExportPDF() {
+    const data = filtered.map(p => {
+      const fourn = fournisseurs.find(f => f.id === p.fourn_id);
+      return { ...p, fourn_nom: fourn ? fourn.nom : '—', valeur_stock: p.stock * p.prix_achat };
+    });
+    const columns = [
+      { key: 'ref', header: 'RÉF' },
+      { key: 'nom', header: 'DÉSIGNATION' },
+      { key: 'cat', header: 'CATÉGORIE' },
+      { key: 'stock', header: 'STOCK', align: 'center' },
+      { key: 'seuil', header: 'SEUIL', align: 'center' },
+      { key: 'prix_achat', header: 'P.ACHAT', isCurrency: true, align: 'right' },
+      { key: 'prix_vente', header: 'P.VENTE', isCurrency: true, align: 'right' },
+      { key: 'fourn_nom', header: 'FOURNISSEUR' },
+    ];
+    generatePremiumPDF({ title: 'Rapport d\'Inventaire', data, columns, filename: 'Inventaire_Produits' });
+  }
+
+  function handleExportExcel() {
+    const data = filtered.map(p => {
+      const fourn = fournisseurs.find(f => f.id === p.fourn_id);
+      return { ...p, fourn_nom: fourn ? fourn.nom : '—', valeur_stock: p.stock * p.prix_achat };
+    });
+    const columns = [
+      { key: 'ref', header: 'RÉF' },
+      { key: 'nom', header: 'DÉSIGNATION' },
+      { key: 'cat', header: 'CATÉGORIE' },
+      { key: 'stock', header: 'STOCK', align: 'center' },
+      { key: 'seuil', header: 'SEUIL', align: 'center' },
+      { key: 'prix_achat', header: 'PRIX ACHAT', isCurrency: true, align: 'right' },
+      { key: 'prix_vente', header: 'PRIX VENTE', isCurrency: true, align: 'right' },
+      { key: 'fourn_nom', header: 'FOURNISSEUR' },
+      { key: 'valeur_stock', header: 'VALEUR STOCK', isCurrency: true, align: 'right' }
+    ];
+    generatePremiumExcel({ title: 'INVENTAIRE DES PRODUITS', data, columns, filename: 'Inventaire_Produits' });
+  }
+
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <PageHeader title="📦 Catalogue Produits">
-        <Btn variant="accent" onClick={openAdd} icon="➕">Nouveau produit</Btn>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Btn variant="outline" icon="📄" onClick={handleExportPDF}>Rapport PDF</Btn>
+          <Btn variant="outline" icon="📊" onClick={handleExportExcel}>Excel Premium</Btn>
+          <Btn variant="accent" onClick={openAdd} icon="➕">Nouveau produit</Btn>
+        </div>
       </PageHeader>
 
-      <Card>
-        <Toolbar>
-          <SearchBar value={search} onChange={setSearch} placeholder="Rechercher un produit, référence..." />
-          <Select value={catFilter} onChange={e => setCatFilter(e.target.value)}>
-            <option value="">Toutes catégories</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </Select>
-          <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-            <option value="">Tous les statuts</option>
-            <option value="ok">Disponible</option>
-            <option value="faible">Stock faible</option>
-            <option value="rupture">Rupture</option>
-          </Select>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>{filtered.length} produit(s)</span>
-        </Toolbar>
+      {/* ═══ STATS RAPIDES (Style Hub Corporate) ═══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+        <article style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(to right, #3b82f6, #60a5fa)' }} />
+          <h3 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 600 }}>Total Produits</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '2rem', fontWeight: 800, color: '#f8fafc', margin: 0, lineHeight: 1 }}>{produits.length}</span>
+            <span style={{ fontSize: '1.2rem', opacity: 0.5 }}>📦</span>
+          </div>
+        </article>
 
-        <Table headers={['Référence', 'Désignation', 'Catégorie', 'Stock', 'Seuil', 'Prix achat', 'Prix vente', 'Statut', 'Actions']}
-          empty={filtered.length === 0 ? <Empty message="Aucun produit trouvé" action={<Btn variant="accent" size="sm" onClick={openAdd} icon="➕">Ajouter</Btn>} /> : null}>
+        <article style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(to right, #f59e0b, #fbbf24)' }} />
+          <h3 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 600 }}>Stock Faible</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '2rem', fontWeight: 800, color: '#f59e0b', margin: 0, lineHeight: 1 }}>{produits.filter(p => p.stock > 0 && p.stock <= p.seuil).length}</span>
+            <span style={{ fontSize: '1.2rem', opacity: 0.5 }}>⚠️</span>
+          </div>
+        </article>
+
+        <article style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(to right, #ef4444, #f87171)' }} />
+          <h3 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 600 }}>En Rupture</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '2rem', fontWeight: 800, color: '#ef4444', margin: 0, lineHeight: 1 }}>{produits.filter(p => p.stock === 0).length}</span>
+            <span style={{ fontSize: '1.2rem', opacity: 0.5 }}>❌</span>
+          </div>
+        </article>
+
+        <article style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(to right, #10b981, #34d399)' }} />
+          <h3 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 600 }}>Valeur du Stock</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '2rem', fontWeight: 800, color: '#10b981', margin: 0, lineHeight: 1 }}>
+              {produits.reduce((acc, p) => acc + (p.stock * p.prix_achat), 0).toLocaleString()} F
+            </span>
+            <span style={{ fontSize: '1.2rem', opacity: 0.5 }}>💰</span>
+          </div>
+        </article>
+      </div>
+
+      {/* ═══ BARRE D'OUTILS (Filtres) ═══ */}
+      <div style={{ background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', borderRadius: '16px', padding: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginBottom: '24px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+        <SearchBar value={search} onChange={setSearch} placeholder="Réf médicale, nom, code-barres..." />
+        <Select value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ minWidth: 150, padding: '10px 16px', borderRadius: 12 }}>
+          <option value="">Toutes Catégories</option>
+          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </Select>
+        <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ minWidth: 150, padding: '10px 16px', borderRadius: 12 }}>
+          <option value="">Tous les statuts</option>
+          <option value="ok">Stock OK</option>
+          <option value="faible">Stock faible</option>
+          <option value="rupture">Rupture</option>
+        </Select>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: 'auto', paddingRight: '10px' }}>{filtered.length} produit(s)</span>
+      </div>
+
+      {/* ═══ MASONRY GRID : CARTES PRODUITS ═══ */}
+      {filtered.length === 0 ? (
+        <Empty message="Aucun produit trouvé." action={<Btn variant="accent" size="sm" onClick={openAdd} icon="➕">Créer un produit</Btn>} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
           {filtered.map(p => {
-            const s = statusInfo(p);
-            const fourn = fournisseurs.find(f => f.id === p.fourn_id);
+            // Determine Card Style based on status
+            const isRupture = p.stock === 0;
+            const isLow = p.stock > 0 && p.stock <= p.seuil;
+            const isExpensive = p.prix_achat > 100000; // Arbitrary threshold for "Neon Blue"
+            
+            let borderColor = 'rgba(255,255,255,0.1)';
+            let statusBadge = null;
+
+            if (isRupture) {
+              borderColor = '#ef4444'; // Neon Red
+              statusBadge = <span style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', fontSize: '0.65rem', padding: '2px 8px', borderRadius: 999, fontWeight: 700, textTransform: 'uppercase', animation: 'pulse 2s infinite' }}>Rupture !</span>;
+            } else if (isLow) {
+              borderColor = '#eab308'; // Neon Yellow
+            } else if (isExpensive) {
+              borderColor = '#3b82f6'; // Neon Blue
+            } else {
+              borderColor = '#22c55e'; // Neon Green
+            }
+
+            const marge = p.prix_vente - p.prix_achat;
+            const txMarge = p.prix_vente > 0 ? ((marge / p.prix_vente) * 100).toFixed(0) : 0;
+
             return (
-              <Tr key={p.id}>
-                <Td><span style={{ fontFamily: 'monospace', background: 'var(--bg-page)', padding: '2px 8px', borderRadius: 4, fontSize: '0.78rem' }}>{p.ref}</span></Td>
-                <Td style={{ maxWidth: 220 }}>
-                  <div style={{ fontWeight: 600 }}>{p.nom}</div>
-                  {p.localisation && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>📍 {p.localisation}</div>}
-                </Td>
-                <Td><span style={{ background: 'var(--bg-page)', padding: '2px 8px', borderRadius: 4, fontSize: '0.78rem' }}>{p.cat}</span></Td>
-                <Td><strong style={{ fontSize: '1rem' }}>{p.stock}</strong></Td>
-                <Td style={{ color: 'var(--text-muted)' }}>{p.seuil}</Td>
-                <Td style={{ color: 'var(--text-muted)' }}>{p.prix_achat.toLocaleString()} F</Td>
-                <Td style={{ fontWeight: 600, color: '#00a878' }}>{p.prix_vente.toLocaleString()} F</Td>
-                <Td><Badge variant={s.variant}>{s.label}</Badge></Td>
-                <Td>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <Btn variant="outline" size="sm" onClick={() => setDetailProd(p)}>👁️</Btn>
-                    <Btn variant="outline" size="sm" onClick={() => openEdit(p)}>✏️</Btn>
-                    <Btn variant="outline" size="sm" style={{ color: '#e63946' }} onClick={() => setConfirmId(p.id)}>🗑️</Btn>
+              <article key={p.id} style={{ 
+                background: 'rgba(255, 255, 255, 0.03)', 
+                backdropFilter: 'blur(20px)', 
+                borderRadius: '24px', 
+                padding: '20px', 
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderLeft: `4px solid ${borderColor}`,
+                boxShadow: `0 8px 32px 0 rgba(0, 0, 0, 0.3), -8px 0 20px -10px ${borderColor}60`, // glowing edge
+                display: 'flex', flexDirection: 'column',
+                position: 'relative', overflow: 'hidden'
+              }}>
+                {isLow && !isRupture && <div style={{ position: 'absolute', bottom: -10, right: -10, width: 100, height: 100, background: 'rgba(234, 179, 8, 0.1)', borderRadius: '50%', filter: 'blur(30px)' }} />}
+                
+                {/* Header (Ref + Badge) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', position: 'relative', zIndex: 10 }}>
+                  <span style={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 600, color: '#cbd5e1', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '6px' }}>{p.ref}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {statusBadge}
+                    {isLow && !isRupture && <span style={{ fontSize: '1rem' }}>⚠️</span>}
                   </div>
-                </Td>
-              </Tr>
+                </div>
+
+                {/* Nom & Catégorie */}
+                <h3 style={{ fontWeight: 700, fontSize: '1rem', lineHeight: 1.2, color: '#ffffff', marginBottom: '4px', position: 'relative', zIndex: 10 }}>{p.nom}</h3>
+                <p style={{ fontSize: '0.7rem', color: '#a5b4fc', fontWeight: 500, marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px', position: 'relative', zIndex: 10 }}>{p.cat}</p>
+
+                {/* Tarification */}
+                <div style={{ flex: 1 }}>
+                  {isRupture ? (
+                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16, fontSize: '0.75rem', fontFamily: 'monospace', color: '#94a3b8' }}>
+                       <p>PA: <span style={{ color: '#e2e8f0' }}>{p.prix_achat.toLocaleString()} F</span></p>
+                       <p style={{ textAlign: 'right' }}>PV: <span style={{ color: '#e2e8f0' }}>{p.prix_vente.toLocaleString()} F</span></p>
+                     </div>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', padding: '12px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '16px', position: 'relative', zIndex: 10 }}>
+                      <div>
+                         <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Prix Vente</p>
+                         <p style={{ fontSize: '0.9rem', fontFamily: 'monospace', color: '#ffffff' }}>{p.prix_vente.toLocaleString()} F</p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                         <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Marge Brute</p>
+                         <p style={{ fontSize: '0.9rem', fontFamily: 'monospace', fontWeight: 700, color: '#34d399' }}>{txMarge}%</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Stock & Seuil ProgressBar */}
+                {isRupture ? (
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', textTransform: 'uppercase', color: '#f87171', fontWeight: 700, marginBottom: 4 }}>
+                      <span>Seuil critique dépassé</span>
+                      <span>0 / {p.seuil} U</span>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', background: 'rgba(0,0,0,0.5)', borderRadius: '999px', overflow: 'hidden', border: '1px solid rgba(239,68,68,0.2)' }}>
+                       <div style={{ height: '100%', width: '0%', background: '#ef4444' }} />
+                    </div>
+                  </div>
+                ) : isLow ? (
+                  <div style={{ marginBottom: '16px', position: 'relative', zIndex: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', textTransform: 'uppercase', color: '#eab308', fontWeight: 700, marginBottom: 4 }}>
+                      <span>Alerte Seuil</span>
+                      <span>{p.stock} / {p.seuil} U</span>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', background: 'rgba(0,0,0,0.5)', borderRadius: '999px', overflow: 'hidden' }}>
+                       <div style={{ height: '100%', width: `${Math.max(5, (p.stock / p.seuil) * 100)}%`, background: '#eab308', boxShadow: '0 0 10px rgba(234,179,8,0.8)' }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', position: 'relative', zIndex: 10 }}>
+                    <div>
+                      <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Stock disponible</p>
+                      <p style={{ fontSize: '1.25rem', fontWeight: 700, color: borderColor }}>{p.stock.toLocaleString()} <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>U</span></p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions Bottom */}
+                <div style={{ display: 'flex', gap: 8, marginTop: 'auto', position: 'relative', zIndex: 10 }}>
+                  {isRupture ? (
+                     <button style={{ width: '100%', padding: '8px', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'} onClick={() => setDetailProd(p)}>
+                       Voir Fiche Produit
+                     </button>
+                  ) : (
+                    <>
+                      <button style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.05)', color: '#e2e8f0', fontSize: '0.75rem', fontWeight: 600, borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onClick={() => setDetailProd(p)}>
+                        Détails
+                      </button>
+                      <button style={{ flex: 1, padding: '8px', background: 'rgba(59,130,246,0.1)', color: '#60a5fa', fontSize: '0.75rem', fontWeight: 600, borderRadius: '10px', border: '1px solid rgba(59,130,246,0.2)', cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.2)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(59,130,246,0.1)'} onClick={() => openEdit(p)}>
+                        Modifier
+                      </button>
+                    </>
+                  )}
+                  
+                  <button onClick={() => setConfirmId(p.id)} style={{ width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', borderRadius: '8px' }} onMouseEnter={e => e.currentTarget.style.color = '#ef4444'} onMouseLeave={e => e.currentTarget.style.color = '#64748b'}>
+                    🗑️
+                  </button>
+                </div>
+
+              </article>
             );
           })}
-        </Table>
-      </Card>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+      `}</style>
 
       {/* ADD / EDIT MODAL */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? '✏️ Modifier le produit' : '➕ Nouveau produit'} width={620}>
