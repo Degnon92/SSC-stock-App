@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { Modal, FormGrid, FormGroup, Input, Select, Btn, Badge, Table, Tr, Td, SearchBar, Toolbar, PageHeader, Card, Empty, Confirm } from './UI';
+import { Modal, FormGrid, FormGroup, Select, Input, Btn, Badge, Table, Tr, Td, SearchBar, PageHeader, Empty, Confirm, StatCard } from './UI';
 import { generateFacture } from '../utils/pdfUtils';
 
 const STATUTS = ['Brouillon', 'Émise', 'Payée', 'Annulée'];
 const STATUS_VARIANT = { Brouillon: 'neutral', Émise: 'info', Payée: 'ok', Annulée: 'danger' };
 
 export default function Facturation({ store }) {
-  const { factures, produits, clients, fournisseurs, addFacture, updateFacture, deleteFacture } = store;
+  const { factures, produits, clients, addFacture, updateFacture, deleteFacture } = store;
   const [search,      setSearch]      = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('Tous');
+  const [typeFilter, setTypeFilter] = useState('Tous');
   const [modal,       setModal]       = useState(false);
   const [detailId,    setDetailId]    = useState(null);
   const [confirmFactureId, setConfirmFactureId] = useState(null);
@@ -83,78 +84,251 @@ export default function Facturation({ store }) {
       f.numero?.toLowerCase().includes(search.toLowerCase()) ||
       (clients.find(c => c.id === f.client_id)?.nom || '').toLowerCase().includes(search.toLowerCase())
     );
-    if (statusFilter) arr = arr.filter(f => f.statut === statusFilter);
+
+    if (typeFilter === 'Factures Définitives') arr = arr.filter(f => f.statut !== 'Brouillon');
+    if (typeFilter === 'Proformas / Devis') arr = arr.filter(f => f.statut === 'Brouillon');
+
+    if (statusFilter === 'Payées') arr = arr.filter(f => f.statut === 'Payée');
+    if (statusFilter === 'En attente / Impayées') arr = arr.filter(f => f.statut === 'Émise');
+    if (statusFilter === 'En retard') arr = arr.filter(f => f.statut === 'Émise' && f.echeance && new Date(f.echeance) < new Date());
     return arr;
-  }, [factures, clients, search, statusFilter]);
+  }, [factures, clients, search, statusFilter, typeFilter]);
 
   const caTotal    = (factures || []).filter(f => f.statut === 'Payée').reduce((s, f) => s + (f.totalTTC || 0), 0);
-  const nbEmises   = (factures || []).filter(f => f.statut === 'Émise').length;
-  const nbBrouillons = (factures || []).filter(f => f.statut === 'Brouillon').length;
+  const totalAttente = (factures || []).filter(f => f.statut === 'Émise').reduce((s, f) => s + (f.totalTTC || 0), 0);
+  const totalRetard = (factures || []).filter(f => f.statut === 'Émise' && f.echeance && new Date(f.echeance) < new Date()).reduce((s, f) => s + (f.totalTTC || 0), 0);
   const detailFac  = factures?.find(f => f.id === detailId);
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <PageHeader title="🧾 Facturation">
-        <Btn variant="accent" onClick={() => { setForm(EMPTY_FACTURE); setModal(true); }} icon="➕">Nouvelle facture</Btn>
-      </PageHeader>
-
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-        {[
-          { label: 'CA encaissé', value: caTotal.toLocaleString('fr-FR') + ' F', color: '#00a878', icon: '💰' },
-          { label: 'Factures émises', value: nbEmises, color: '#0079c1', icon: '📄' },
-          { label: 'Brouillons', value: nbBrouillons, color: '#f4a261', icon: '✏️' },
-          { label: 'Total factures', value: factures?.length || 0, color: 'var(--text-muted)', icon: '🧾' },
-        ].map(s => (
-          <div key={s.label} style={{ background: 'var(--bg-card)', borderRadius: 10, padding: '16px 20px', border: '1px solid var(--border-color)', boxShadow: '0 2px 8px rgba(10,37,64,0.06)' }}>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{s.label}</div>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '1.4rem', color: s.color }}>{s.icon} {s.value}</div>
+      {/* HEADER DE PAGE & KPIs FINANCIERS */}
+      <div style={{ marginBottom: '32px' }}>
+         <div style={{ display: 'flex', flexDirection: window.innerWidth < 768 ? 'column' : 'row', alignItems: window.innerWidth < 768 ? 'flex-start' : 'flex-end', justifyContent: 'space-between', gap: '16px', marginBottom: '24px' }}>
+          <div>
+            <h1 style={{ fontSize: '1.875rem', fontWeight: 700, letterSpacing: '-0.025em', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '12px', color: '#f8fafc' }}>
+              🧾 Facturation Clients
+            </h1>
+            <p style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Gérez les proformas, devis, et le recouvrement des factures cliniques.</p>
           </div>
-        ))}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => { setForm(EMPTY_FACTURE); setModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', backgroundColor: 'rgba(255,255,255,0.05)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
+              📝 Nouveau Proforma
+            </button>
+            <button onClick={() => { setForm({ ...EMPTY_FACTURE, statut: 'Émise' }); setModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#6366f1', color: '#ffffff', boxShadow: '0 0 15px rgba(99,102,241,0.4)', borderRadius: '12px', fontSize: '0.875rem', fontWeight: 600, border: 'none', cursor: 'pointer', transition: 'all 0.2s' }}>
+              🧾 Créer Facture
+            </button>
+          </div>
+        </div>
+
+        {/* Mini Dashboard Santé Financière */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+          <div className="glass-card" style={{ borderRadius: '16px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid rgba(255,255,255,0.05)', borderLeft: '4px solid #22c55e', background: 'rgba(255,255,255,0.02)' }}>
+            <div>
+              <p style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Encaissé (Ce mois)</p>
+              <p style={{ fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 700, color: '#ffffff' }}>{caTotal.toLocaleString('fr-FR')} F</p>
+            </div>
+            <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(34,197,94,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4ade80', fontSize: '1.25rem' }}>✅</div>
+          </div>
+          <div className="glass-card" style={{ borderRadius: '16px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid rgba(255,255,255,0.05)', borderLeft: '4px solid #eab308', background: 'rgba(255,255,255,0.02)' }}>
+            <div>
+              <p style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>En Attente (À recouvrer)</p>
+              <p style={{ fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 700, color: '#facc15' }}>{(totalAttente + totalRetard).toLocaleString('fr-FR')} F</p>
+            </div>
+            <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(234,179,8,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#facc15', fontSize: '1.25rem' }}>⏳</div>
+          </div>
+          <div className="glass-card" style={{ borderRadius: '16px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid rgba(255,255,255,0.05)', borderLeft: '4px solid #94a3b8', background: 'rgba(255,255,255,0.02)', opacity: 0.8 }}>
+            <div>
+              <p style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Proformas en cours</p>
+              <p style={{ fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 700, color: '#e2e8f0' }}>{((factures || []).filter(f => f.statut === 'Brouillon').reduce((s,f) => s+(f.totalTTC||0),0)).toLocaleString('fr-FR')} F</p>
+            </div>
+            <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(148,163,184,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '1.25rem' }}>📝</div>
+          </div>
+        </div>
+
+        {/* Toolbar Filtres Vitrée */}
+        <div className="glass-card" style={{ borderRadius: '16px', padding: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+            <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="N° Facture, Nom Client..."
+              style={{ width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '8px 16px 8px 36px', fontSize: '0.875rem', color: '#ffffff', outline: 'none' }}
+            />
+          </div>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px 16px', fontSize: '0.875rem', color: '#cbd5e1', outline: 'none', cursor: 'pointer' }}>
+            <option value="Tous" style={{ backgroundColor: '#0f172a' }}>Type : Tous</option>
+            <option value="Factures Définitives" style={{ backgroundColor: '#0f172a' }}>Factures Définitives</option>
+            <option value="Proformas / Devis" style={{ backgroundColor: '#0f172a' }}>Proformas / Devis</option>
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px 16px', fontSize: '0.875rem', color: '#cbd5e1', outline: 'none', cursor: 'pointer' }}>
+            <option value="Tous" style={{ backgroundColor: '#0f172a' }}>Statut : Tous</option>
+            <option value="Payées" style={{ backgroundColor: '#0f172a' }}>Payées</option>
+            <option value="En attente / Impayées" style={{ backgroundColor: '#0f172a' }}>En attente / Impayées</option>
+            <option value="En retard" style={{ backgroundColor: '#0f172a' }}>En retard</option>
+          </select>
+        </div>
       </div>
 
-      <Card>
-        <Toolbar>
-          <SearchBar value={search} onChange={setSearch} placeholder="Rechercher par numéro, client..." />
-          <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-            <option value="">Tous les statuts</option>
-            {STATUTS.map(s => <option key={s} value={s}>{s}</option>)}
-          </Select>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>{filtered.length} facture(s)</span>
-        </Toolbar>
-        <Table headers={['N° Facture', 'Client', 'Date', 'Échéance', 'Montant TTC', 'Statut', 'Actions']}
-          empty={filtered.length === 0 ? <Empty icon="🧾" message="Aucune facture" action={<Btn variant="accent" size="sm" onClick={() => setModal(true)}>Créer</Btn>} /> : null}>
+      <style>{`
+        .factures-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
+        @media (min-width: 640px) { .factures-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (min-width: 1024px) { .factures-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (min-width: 1280px) { .factures-grid { grid-template-columns: repeat(4, 1fr); } }
+
+        .border-t-green { border-top: 3px solid #22c55e; box-shadow: 0 -10px 20px -10px rgba(34, 197, 94, 0.3); }
+        .border-t-yellow { border-top: 3px solid #eab308; box-shadow: 0 -10px 20px -10px rgba(234, 179, 8, 0.3); }
+        .border-t-red { border-top: 3px solid #ef4444; box-shadow: 0 -10px 20px -10px rgba(239, 68, 68, 0.3); }
+        .border-t-slate { border-top: 3px solid #94a3b8; box-shadow: 0 -10px 20px -10px rgba(148, 163, 184, 0.2); }
+        .dashed-divider { border-top: 1px dashed rgba(255,255,255,0.1); width: 100%; margin: 12px 0; }
+
+        @keyframes pulse-red {
+          0%, 100% { opacity: 1; border-color: rgba(239, 68, 68, 0.6); }
+          50% { opacity: 0.7; border-color: rgba(239, 68, 68, 0.2); }
+        }
+        .animate-pulse-red { animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+      `}</style>
+
+      {filtered.length === 0 ? (
+        <Empty icon="🧾" message="Aucune facture trouvée" />
+      ) : (
+        <div className="factures-grid">
           {filtered.map(f => {
             const client = clients.find(c => c.id === f.client_id);
+            const isRetard = f.statut === 'Émise' && f.echeance && new Date(f.echeance) < new Date();
+
+            let borderColor = 'border-t-slate';
+            let badgeBg = 'rgba(148,163,184,0.1)';
+            let badgeText = '#cbd5e1';
+            let badgeBorder = 'rgba(148,163,184,0.2)';
+            let statusText = 'Proforma';
+            let iconText = '📝';
+
+            if (f.statut === 'Payée') {
+              borderColor = 'border-t-green';
+              badgeBg = 'rgba(34,197,94,0.1)';
+              badgeText = '#4ade80';
+              badgeBorder = 'rgba(34,197,94,0.2)';
+              statusText = 'Payée';
+              iconText = '✅';
+            } else if (isRetard) {
+              borderColor = 'border-t-red';
+              badgeBg = 'rgba(239,68,68,0.1)';
+              badgeText = '#f87171';
+              badgeBorder = 'rgba(239,68,68,0.2)';
+              statusText = 'Retard Paiement';
+              iconText = '⚠️';
+            } else if (f.statut === 'Émise') {
+              borderColor = 'border-t-yellow';
+              badgeBg = 'rgba(234,179,8,0.1)';
+              badgeText = '#facc15';
+              badgeBorder = 'rgba(234,179,8,0.2)';
+              statusText = 'En Attente';
+              iconText = '⏳';
+            } else if (f.statut === 'Annulée') {
+               borderColor = 'border-t-slate';
+               badgeText = '#ef4444';
+               statusText = 'Annulée';
+               iconText = '❌';
+            }
+
             return (
-              <Tr key={f.id}>
-                <Td><span style={{ fontFamily: 'monospace', fontWeight: 700, background: 'var(--bg-page)', padding: '2px 8px', borderRadius: 4, fontSize: '0.8rem' }}>{f.numero}</span></Td>
-                <Td><strong>{client?.nom || '—'}</strong></Td>
-                <Td style={{ color: 'var(--text-muted)' }}>{f.date}</Td>
-                <Td style={{ color: f.echeance && new Date(f.echeance) < new Date() && f.statut === 'Émise' ? '#e63946' : 'var(--text-muted)' }}>
-                  {f.echeance || '—'}
-                  {f.echeance && new Date(f.echeance) < new Date() && f.statut === 'Émise' && <div style={{ fontSize: '0.7rem', color: '#e63946' }}>⚠️ En retard</div>}
-                </Td>
-                <Td><strong style={{ color: '#00a878' }}>{(f.totalTTC || 0).toLocaleString('fr-FR')} FCFA</strong></Td>
-                <Td>
-                  <Select value={f.statut} onChange={e => handleUpdateStatut(f.id, e.target.value)}
-                    style={{ padding: '3px 8px', fontSize: '0.78rem', border: 'none', background: 'transparent', fontWeight: 600,
-                      color: f.statut === 'Payée' ? '#00a878' : f.statut === 'Émise' ? '#0079c1' : f.statut === 'Annulée' ? '#e63946' : 'var(--text-muted)' }}>
-                    {STATUTS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </Select>
-                </Td>
-                <Td>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <Btn variant="outline" size="sm" onClick={() => setDetailId(f.id)}>👁️</Btn>
-                    <Btn variant="blue" size="sm" onClick={() => handlePDF(f)}>PDF</Btn>
-                    <Btn variant="outline" size="sm" style={{ color: '#e63946' }} onClick={() => setConfirmFactureId(f.id)}>🗑️</Btn>
+              <article key={f.id} className={`glass-card ${borderColor}`} style={{
+                background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', borderRadius: '24px',
+                padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden',
+                opacity: f.statut === 'Brouillon' || f.statut === 'Annulée' ? 0.8 : 1
+              }}>
+                {f.statut === 'Payée' && (
+                  <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) rotate(-25deg)', fontSize: '60px', fontWeight: 800, color: 'rgba(34,197,94,0.05)', border: '4px solid rgba(34,197,94,0.05)', padding: '8px', borderRadius: '8px', pointerEvents: 'none', letterSpacing: '0.1em', zIndex: 0 }}>
+                    PAYÉ
                   </div>
-                </Td>
-              </Tr>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px', position: 'relative', zIndex: 10 }}>
+                  <span style={{ fontSize: '0.625rem', fontFamily: 'monospace', color: '#94a3b8', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                     {iconText} {f.numero}
+                  </span>
+                  <span className={isRetard ? 'animate-pulse-red' : ''} style={{ background: badgeBg, color: badgeText, border: `1px solid ${badgeBorder}`, fontSize: '0.5625rem', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {statusText}
+                  </span>
+                </div>
+
+                <h3 style={{ fontWeight: 700, fontSize: '1.125rem', color: '#ffffff', lineHeight: 1.2, position: 'relative', zIndex: 10 }}>{client?.nom || 'Client inconnu'}</h3>
+                <p style={{ fontSize: '0.625rem', color: '#94a3b8', marginTop: '4px', marginBottom: '16px', position: 'relative', zIndex: 10 }}>
+                  {f.statut === 'Brouillon' ? 'Créé le ' : 'Émise le '} {new Date(f.date).toLocaleDateString('fr-FR')}
+                </p>
+
+                <div style={{ background: f.statut === 'Payée' ? 'rgba(0,0,0,0.2)' : isRetard ? 'rgba(239,68,68,0.05)' : f.statut === 'Émise' ? 'rgba(234,179,8,0.05)' : 'rgba(0,0,0,0.2)', borderRadius: '12px', padding: '12px', border: `1px solid ${f.statut === 'Payée' ? 'rgba(255,255,255,0.05)' : isRetard ? 'rgba(239,68,68,0.1)' : f.statut === 'Émise' ? 'rgba(234,179,8,0.1)' : 'rgba(255,255,255,0.05)'}`, marginBottom: '12px', textAlign: 'center', position: 'relative', zIndex: 10 }}>
+                  <p style={{ fontSize: '0.625rem', color: isRetard ? 'rgba(248,113,113,0.8)' : f.statut === 'Émise' ? 'rgba(250,204,21,0.8)' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>
+                    {f.statut === 'Payée' ? 'Montant TTC' : isRetard ? 'Créance due' : f.statut === 'Émise' ? 'Reste à payer' : 'Montant Estimé'}
+                  </p>
+                  <p style={{ fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 700, color: f.statut === 'Payée' ? '#ffffff' : isRetard ? '#f87171' : f.statut === 'Émise' ? '#facc15' : '#cbd5e1' }}>
+                    {(f.totalTTC || 0).toLocaleString('fr-FR')} F
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.625rem', color: isRetard ? '#f87171' : '#94a3b8', position: 'relative', zIndex: 10, fontWeight: isRetard ? 600 : 400 }}>
+                  {f.statut === 'Brouillon' ? (
+                    <><span>Validité: 30 jours</span><span>Non facturé</span></>
+                  ) : f.statut === 'Payée' ? (
+                    <><span>Réf. Paiement: VIR-{f.id?.toString().slice(-4)}</span><span style={{ color: '#4ade80' }}>Reçu le {(f.date_reception ? new Date(f.date_reception) : new Date()).toLocaleDateString('fr-FR').slice(0,5)}</span></>
+                  ) : (
+                    <>
+                      <span>{isRetard ? 'Échéance dépassée :' : 'Échéance :'} {f.echeance ? new Date(f.echeance).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }) : '—'}</span>
+                      <span>
+                        {f.echeance ? (
+                          isRetard ? `(Retard : ${Math.floor((new Date() - new Date(f.echeance)) / (1000 * 60 * 60 * 24))}j)` : `(Dans ${Math.floor((new Date(f.echeance) - new Date()) / (1000 * 60 * 60 * 24))}j)`
+                        ) : ''}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                <div className="dashed-divider" style={{ position: 'relative', zIndex: 10 }}></div>
+
+                <div style={{ flex: 1 }}></div>
+
+                <div style={{ marginTop: 'auto', display: 'flex', gap: '8px', position: 'relative', zIndex: 10, flexWrap: 'wrap' }}>
+                  <button onClick={() => setDetailId(f.id)} style={{ flex: 1, padding: '10px', backgroundColor: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', minWidth: '40px' }} title="Voir/Éditer">
+                    👁️
+                  </button>
+
+                  {f.statut === 'Brouillon' && (
+                    <button onClick={() => handleUpdateStatut(f.id, 'Émise')} style={{ flex: 4, padding: '10px', backgroundColor: 'rgba(99,102,241,0.15)', color: '#818cf8', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(99,102,241,0.3)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                      🚀 Émettre Facture
+                    </button>
+                  )}
+
+                  {f.statut === 'Émise' && (
+                    <button onClick={() => handleUpdateStatut(f.id, 'Payée')} style={{ flex: 4, padding: '10px', backgroundColor: 'rgba(34,197,94,0.1)', color: '#4ade80', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(34,197,94,0.3)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                      💰 Encaisser
+                    </button>
+                  )}
+
+                  {f.statut === 'Payée' && (
+                    <button onClick={() => handlePDF(f)} style={{ flex: 4, padding: '10px', backgroundColor: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                      📄 PDF Reçu
+                    </button>
+                  )}
+
+                  {isRetard && (
+                     <button onClick={() => alert("Transmission au recouvrement: " + f.numero)} style={{ flex: 4, padding: '10px', backgroundColor: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.625rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Transmettre au Recouvrement">
+                       🔨 Recouvrement
+                     </button>
+                  )}
+
+                  {(f.statut !== 'Payée' && f.statut !== 'Annulée' && !isRetard) && (
+                    <button onClick={() => setConfirmFactureId(f.id)} style={{ flex: 0, padding: '10px', backgroundColor: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.875rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Supprimer">
+                      🗑️
+                    </button>
+                  )}
+                </div>
+              </article>
             );
           })}
-        </Table>
-      </Card>
+        </div>
+      )}
 
       {/* MODAL CRÉATION */}
       <Modal open={modal} onClose={() => setModal(false)} title="🧾 Nouvelle facture" width={700}>

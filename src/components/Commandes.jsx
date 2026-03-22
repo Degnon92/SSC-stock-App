@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Modal, FormGrid, FormGroup, Input, Select, Btn, Badge, Table, Tr, Td, SearchBar, Toolbar, PageHeader, Card, Empty, SectionCard, Confirm } from './UI';
+import { Modal, FormGrid, FormGroup, Select, Input, Btn, Badge, Table, Tr, Td, SearchBar, PageHeader, Empty, Confirm } from './UI';
+import { generateBonCommande } from '../utils/pdfUtils';
 
 export default function Commandes({ store, auth }) {
   const { fournisseurs, produits, commandes, addCommande, updateCommande, addMouvement } = store;
   
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('Tous');
+  const [tab, setTab] = useState('encours');
   const [modalOpen, setModalOpen] = useState(false);
   const [receiving, setReceiving] = useState(null); // Reference to an order being received
   const [deleting, setDeleting] = useState(null); // Order to delete
@@ -15,10 +18,15 @@ export default function Commandes({ store, auth }) {
   const [lignes, setLignes] = useState([{ produit_id: '', qte: 1, prix_achat: 0 }]);
   const [loading, setLoading] = useState(false);
 
-  const filtered = (commandes || []).filter(c => 
-    c.numero?.toLowerCase().includes(search.toLowerCase()) || 
-    c.fournisseur_nom?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = (commandes || []).filter(c => {
+    const sStr = search || '';
+    const matchSearch = c.numero?.toLowerCase().includes(sStr.toLowerCase()) ||
+                      c.fournisseur_nom?.toLowerCase().includes(sStr.toLowerCase());
+    const matchTab = tab === 'encours' ? (c.statut !== 'Réceptionnée') : (c.statut === 'Réceptionnée');
+    const matchStatus = statusFilter === 'Tous' ? true :
+                        (statusFilter === 'En cours' ? c.statut !== 'Réceptionnée' : c.statut === statusFilter);
+    return matchSearch && matchTab && matchStatus;
+  });
 
   const totalAmount = lignes.reduce((s, l) => s + (l.qte * l.prix_achat), 0);
 
@@ -96,50 +104,207 @@ export default function Commandes({ store, auth }) {
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <PageHeader title="📦 Commandes Fournisseurs (Réassort)">
-        <Btn variant="accent" onClick={() => setModalOpen(true)} icon="➕">Créer un Bon de Commande</Btn>
-      </PageHeader>
+      {/* HEADER DE PAGE & BARRE D'OUTILS */}
+      <div style={{ marginBottom: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+          <div>
+            <h1 style={{ fontSize: '1.875rem', fontWeight: 700, letterSpacing: '-0.025em', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '12px', color: '#f8fafc' }}>
+               Commandes & Réceptions
+            </h1>
+            <p style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Gérez les réapprovisionnements auprès de vos fournisseurs.</p>
+          </div>
+          <button onClick={() => setModalOpen(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#6366f1', color: '#ffffff', boxShadow: '0 0 15px rgba(99,102,241,0.4)', borderRadius: '12px', fontSize: '0.875rem', fontWeight: 600, border: 'none', cursor: 'pointer', transition: 'all 0.2s' }}>
+            Nouveau Bon de Commande
+          </button>
+        </div>
 
-      <Card>
-        <Toolbar>
-          <SearchBar value={search} onChange={setSearch} placeholder="Rechercher un BC (numéro, fournisseur)..." />
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>{filtered.length} commande(s)</span>
-        </Toolbar>
+        {/* Toolbar Filtres Vitrée */}
+        <div className="glass-card" style={{ background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', borderRadius: '16px', padding: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+            <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="N° Commande (ex: BC-24-001), Fournisseur..."
+              style={{ width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '8px 16px 8px 36px', fontSize: '0.875rem', color: '#ffffff', outline: 'none' }}
+            />
+          </div>
+          <select
+             value={statusFilter}
+             onChange={(e) => setStatusFilter(e.target.value)}
+             style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px 16px', fontSize: '0.875rem', color: '#cbd5e1', outline: 'none', cursor: 'pointer' }}>
+            <option value="Tous" style={{ backgroundColor: '#0f172a' }}>Tous les Statuts</option>
+            <option value="En cours" style={{ backgroundColor: '#0f172a' }}>En Attente (En cours)</option>
+            <option value="Réceptionnée" style={{ backgroundColor: '#0f172a' }}>Réceptionné (Clos)</option>
+          </select>
+        </div>
 
-        <Table headers={['Date', 'N° Commande', 'Fournisseur', 'Montant', 'Statut', 'Actions']}
-          empty={filtered.length === 0 ? <Empty icon="📦" message="Aucune commande fournisseur" /> : null}>
-          {filtered.map(c => (
-            <Tr key={c.id}>
-              <Td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(c.date).toLocaleDateString()}</Td>
-              <Td style={{ fontWeight: 700 }}>{c.numero}</Td>
-              <Td style={{ fontWeight: 600, color: 'var(--text-main)' }}>{c.fournisseur_nom}</Td>
-              <Td style={{ fontWeight: 700, color: '#0079c1' }}>{c.montant_total?.toLocaleString()} F</Td>
-              <Td>
-                <Badge variant={c.statut === 'Réceptionnée' ? 'ok' : c.statut === 'Brouillon' ? 'warn' : 'info'}>
-                  {c.statut === 'Réceptionnée' ? '✅' : '⏳'} {c.statut}
-                </Badge>
-              </Td>
-              <Td>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <Btn variant="outline" size="sm" onClick={() => setViewing(c)}>👁️ Détail</Btn>
-                  {c.statut === 'Brouillon' && (
-                    <Btn variant="primary" size="sm" onClick={() => updateCommande(c.id, { statut: 'Envoyée' })}>🚀 Envoyer</Btn>
-                  )}
+        {/* Mini Tabs */}
+        <div style={{ display: 'flex', gap: '16px', marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+          <button
+            onClick={() => setTab('encours')}
+            style={{ color: tab === 'encours' ? '#818cf8' : '#64748b', fontWeight: 600, fontSize: '0.875rem', borderBottom: tab === 'encours' ? '2px solid #818cf8' : 'none', padding: '0 4px 4px 4px', background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none', cursor: 'pointer', marginBottom: '-9px' }}>
+            Commandes en cours ({commandes.filter(c => c.statut !== 'Réceptionnée').length})
+          </button>
+          <button
+            onClick={() => setTab('historique')}
+            style={{ color: tab === 'historique' ? '#818cf8' : '#64748b', fontWeight: 600, fontSize: '0.875rem', borderBottom: tab === 'historique' ? '2px solid #818cf8' : 'none', padding: '0 4px 4px 4px', background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none', cursor: 'pointer', marginBottom: '-9px' }}>
+            Historique Réceptions
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        .commandes-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
+        @media (min-width: 768px) { .commandes-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (min-width: 1280px) { .commandes-grid { grid-template-columns: repeat(3, 1fr); } }
+
+        .border-l-blue { border-left: 4px solid #3b82f6; box-shadow: -10px 0 20px -10px rgba(59, 130, 246, 0.4); }
+        .border-l-green { border-left: 4px solid #22c55e; box-shadow: -10px 0 20px -10px rgba(34, 197, 94, 0.4); }
+        .border-l-orange { border-left: 4px solid #f97316; box-shadow: -10px 0 20px -10px rgba(249, 115, 22, 0.4); }
+        .border-l-slate { border-left: 4px solid #64748b; box-shadow: -10px 0 20px -10px rgba(100, 116, 139, 0.4); }
+      `}</style>
+
+      {filtered.length === 0 ? (
+        <Empty icon="📦" message="Aucune commande fournisseur" />
+      ) : (
+        <div className="commandes-grid">
+          {filtered.map(c => {
+            let borderColor = 'border-l-slate';
+            let badgeBg = 'rgba(100,116,139,0.2)';
+            let badgeText = '#94a3b8';
+            let badgeBorder = 'rgba(100,116,139,0.3)';
+            let badgeIcon = '⏳';
+            let badgeShadow = 'none';
+
+            if (c.statut === 'Réceptionnée') {
+              borderColor = 'border-l-green';
+              badgeBg = 'rgba(34,197,94,0.2)';
+              badgeText = '#4ade80';
+              badgeBorder = 'rgba(34,197,94,0.3)';
+              badgeIcon = '✅';
+              badgeShadow = '0 0 10px rgba(34,197,94,0.3)';
+            } else if (c.statut === 'Envoyée') {
+              borderColor = 'border-l-blue';
+              badgeBg = 'rgba(59,130,246,0.2)';
+              badgeText = '#60a5fa';
+              badgeBorder = 'rgba(59,130,246,0.3)';
+              badgeIcon = '🚀';
+              badgeShadow = '0 0 10px rgba(59,130,246,0.3)';
+            } else if (c.statut === 'Brouillon') {
+              borderColor = 'border-l-orange';
+              badgeBg = 'rgba(249,115,22,0.2)';
+              badgeText = '#fb923c';
+              badgeBorder = 'rgba(249,115,22,0.3)';
+              badgeIcon = '📝';
+              badgeShadow = '0 0 10px rgba(249,115,22,0.3)';
+            }
+
+            const progress = c.statut === 'Réceptionnée' ? 100 : c.statut === 'Envoyée' ? 50 : 10;
+            const progressColor = c.statut === 'Réceptionnée' ? '#22c55e' : c.statut === 'Envoyée' ? '#3b82f6' : '#f97316';
+
+            return (
+              <article key={c.id} className={`glass-card ${borderColor}`} style={{
+                background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', borderRadius: '24px',
+                padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                border: '1px solid rgba(255, 255, 255, 0.08)', position: 'relative', overflow: 'hidden'
+              }}>
+                {/* Filigrane */}
+                <div style={{ position: 'absolute', bottom: '-24px', right: '-24px', fontSize: '120px', opacity: 0.05, transform: 'rotate(12deg)', pointerEvents: 'none' }}>
+                  📦
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', position: 'relative', zIndex: 10 }}>
+                    <div>
+                      <span style={{ fontSize: '0.625rem', fontFamily: 'monospace', color: '#94a3b8', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        {c.numero}
+                      </span>
+                      <h3 style={{ fontWeight: 700, fontSize: '1.25rem', color: '#ffffff', marginTop: '6px', lineHeight: 1.2 }}>{c.fournisseur_nom}</h3>
+                    </div>
+                    <span style={{ background: badgeBg, color: badgeText, border: `1px solid ${badgeBorder}`, fontSize: '0.625rem', padding: '4px 10px', borderRadius: '9999px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: badgeShadow }}>
+                      {badgeIcon} {c.statut}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+                    <div>
+                      <p style={{ fontSize: '0.625rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Créé le</p>
+                      <p style={{ fontSize: '0.875rem', fontFamily: 'monospace', color: '#cbd5e1' }}>{new Date(c.date).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: '0.625rem', color: c.statut === 'Réceptionnée' ? '#22c55e' : '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>
+                        {c.statut === 'Réceptionnée' ? 'Réceptionnée le' : 'Livraison prévue'}
+                      </p>
+                      <p style={{ fontSize: '0.875rem', fontFamily: 'monospace', color: c.statut === 'Réceptionnée' ? '#4ade80' : '#ffffff', fontWeight: c.statut === 'Réceptionnée' ? 700 : 400 }}>
+                        {c.date_reception ? new Date(c.date_reception).toLocaleDateString() : 'A venir'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
+                    <div>
+                      <p style={{ fontSize: '0.625rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Articles</p>
+                      <p style={{ fontSize: '0.875rem', fontFamily: 'monospace', color: '#cbd5e1' }}>{c.lignes?.length || 0} Référence(s)</p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: '0.625rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Montant Total</p>
+                      <p style={{ fontSize: '1rem', fontFamily: 'monospace', fontWeight: 700, color: '#818cf8' }}>{c.montant_total?.toLocaleString()} F</p>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.625rem', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>
+                      <span>{c.statut === 'Réceptionnée' ? 'Terminé' : 'Préparation'}</span>
+                      <span>{c.statut === 'Réceptionnée' ? 'Réceptionné' : 'Expédition'}</span>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: '9999px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', backgroundColor: progressColor, width: `${progress}%`, boxShadow: `0 0 8px ${progressColor}` }}></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Actions */}
+                <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed rgba(255,255,255,0.1)', display: 'flex', gap: '8px', position: 'relative', zIndex: 10 }}>
+                  <button onClick={() => setViewing(c)} style={{ flex: 1, padding: '8px', backgroundColor: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}>
+                    👁️ Détail
+                  </button>
+                  <button onClick={() => {
+                      const fourn = fournisseurs.find(f => f.id === c.fournisseur_id);
+                      generateBonCommande({
+                        fournisseur: fourn,
+                        produits: (c.lignes || []).map(l => {
+                          const p = produits.find(x => x.id === l.produit_id || x.id === parseInt(l.produit_id));
+                          return { ref: l.ref || p?.ref || '', nom: l.nom || p?.nom || '', qte_commande: l.qte, prix_achat: l.prix_achat };
+                        }),
+                        operateur: c.operateur || '',
+                        numero: c.numero
+                      });
+                    }} style={{ flex: 1, padding: '8px', backgroundColor: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}>
+                    📄 PDF
+                  </button>
                   {c.statut === 'Envoyée' && (
-                    <Btn variant="outline" size="sm" onClick={() => setReceiving(c)}>📥 Réceptionner</Btn>
+                    <button onClick={() => setReceiving(c)} style={{ flex: 2, padding: '8px', backgroundColor: 'rgba(34,197,94,0.1)', color: '#4ade80', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(34,197,94,0.3)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', boxShadow: '0 0 15px rgba(34,197,94,0.1)' }}>
+                      📥 Réceptionner
+                    </button>
                   )}
-                  {c.statut === 'Réceptionnée' && (
-                    <span style={{ fontSize: '0.75rem', color: '#00a878', fontWeight: 600 }}>✅ {new Date(c.date_reception).toLocaleDateString()}</span>
+                  {c.statut === 'Brouillon' && (
+                    <button onClick={() => updateCommande(c.id, { statut: 'Envoyée' })} style={{ flex: 2, padding: '8px', backgroundColor: 'rgba(59,130,246,0.15)', color: '#60a5fa', fontSize: '0.75rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(59,130,246,0.3)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}>
+                      🚀 Envoyer
+                    </button>
                   )}
                   {c.statut !== 'Réceptionnée' && (
-                    <Btn variant="danger" size="sm" onClick={() => setDeleting(c)}>🗑️</Btn>
+                    <button onClick={() => setDeleting(c)} style={{ flex: 0, padding: '8px', backgroundColor: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.875rem', fontWeight: 600, borderRadius: '12px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Annuler/Supprimer">
+                      🗑️
+                    </button>
                   )}
                 </div>
-              </Td>
-            </Tr>
-          ))}
-        </Table>
-      </Card>
+              </article>
+            );
+          })}
+        </div>
+      )}
 
       {/* CREATE MODAL */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="📝 Nouveau Bon de Commande (BC)" width={700}>
@@ -254,6 +419,20 @@ export default function Commandes({ store, auth }) {
                 ✅ Réceptionnée le {new Date(viewing.date_reception).toLocaleDateString('fr-FR')}
               </div>
             )}
+
+            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+              <Btn variant="outline" icon="📄" onClick={() => {
+                const fourn = fournisseurs.find(f => f.id === viewing.fournisseur_id);
+                generateBonCommande({
+                  fournisseur: fourn,
+                  produits: (viewing.lignes || []).map(l => {
+                    const p = produits.find(x => x.id === l.produit_id);
+                    return { ref: l.ref || p?.ref || '', nom: l.nom || p?.nom || '', qte_commande: l.qte, prix_achat: l.prix_achat };
+                  }),
+                  operateur: viewing.operateur || '',
+                });
+              }}>Télécharger PDF</Btn>
+            </div>
           </>
         )}
       </Modal>
